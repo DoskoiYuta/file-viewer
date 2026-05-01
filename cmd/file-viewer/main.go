@@ -235,5 +235,9 @@ func buildURL(port int, root, openFile string) string {
 	if err != nil {
 		rel = openFile
 	}
-	return base + "?file=" + url.QueryEscape(filepath.ToSlash(rel))
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(p)
+	}
+	return base + "view/" + strings.Join(parts, "/")
 }

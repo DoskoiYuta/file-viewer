@@ -18,7 +18,7 @@
   {{end}}
 {{else}}
   <li class="tree-file">
-    <a href="?file={{.Path}}" data-path="{{.Path}}" class="file-link">{{.Name}}</a>
+    <a href="/view/{{urlPath .Path}}" data-path="{{.Path}}" class="file-link">{{.Name}}</a>
   </li>
 {{end}}
 {{end}}

@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"log"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -39,9 +38,6 @@ func (wt *watcher) addRecursive(root string) error {
 		if !d.IsDir() {
 			return nil
 		}
-		if strings.HasPrefix(d.Name(), ".") && p != root {
-			return fs.SkipDir
-		}
 		return wt.w.Add(p)
 	})
 }
@@ -71,10 +67,6 @@ func (wt *watcher) run(ctx context.Context) {
 		case ev, ok := <-wt.w.Events:
 			if !ok {
 				return
-			}
-			name := filepath.Base(ev.Name)
-			if strings.HasPrefix(name, ".") {
-				continue
 			}
 			// If a new directory is created, watch it.
 			if ev.Op&fsnotify.Create != 0 {

@@ -2,7 +2,7 @@
 <ul class="hit-list grep">
 {{range .}}
   <li>
-    <a class="file-link" href="?file={{.Path}}" data-path="{{.Path}}">
+    <a class="file-link" href="/view/{{urlPath .Path}}" data-path="{{.Path}}">
       <span class="grep-path">{{.Path}}<span class="grep-line">:{{.Line}}</span></span>
       <span class="grep-text">{{.Text}}</span>
     </a>

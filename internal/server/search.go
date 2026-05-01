@@ -29,12 +29,6 @@ func (s *Server) fuzzyFiles(q string, limit int) []fileHit {
 			return nil
 		}
 		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && p != s.cfg.Root {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if strings.HasPrefix(d.Name(), ".") {
 			return nil
 		}
 		rel, _ := filepath.Rel(s.cfg.Root, p)
@@ -111,9 +105,6 @@ func (s *Server) grepMarkdown(q string, limit int) []grepHit {
 			return nil
 		}
 		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && p != s.cfg.Root {
-				return fs.SkipDir
-			}
 			return nil
 		}
 		if strings.ToLower(filepath.Ext(d.Name())) != ".md" {

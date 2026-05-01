@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -62,7 +63,8 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	tmpl, err := template.New("").Funcs(template.FuncMap{
-		"join": strings.Join,
+		"join":    strings.Join,
+		"urlPath": urlPath,
 	}).ParseFS(tmplFS, "*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
@@ -100,6 +102,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/view/", s.handleIndex)
 	mux.HandleFunc("/api/tree", s.handleTree)
 	mux.HandleFunc("/api/view", s.handleView)
 	mux.HandleFunc("/api/raw", s.handleRaw)
@@ -148,6 +151,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) pathAllowed(rel string) bool {
 	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(rel)), ".")
 	return s.extSet[ext]
+}
+
+// urlPath escapes each segment of a slash-separated relative path for use in a URL.
+func urlPath(p string) string {
+	parts := strings.Split(p, "/")
+	for i, x := range parts {
+		parts[i] = url.PathEscape(x)
+	}
+	return strings.Join(parts, "/")
 }
 
 // safeJoin resolves a relative path against the root, rejecting traversal.

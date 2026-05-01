@@ -1,7 +1,7 @@
 {{if . }}
 <ul class="hit-list">
 {{range .}}
-  <li><a class="file-link" href="?file={{.Path}}" data-path="{{.Path}}">{{.Path}}</a></li>
+  <li><a class="file-link" href="/view/{{urlPath .Path}}" data-path="{{.Path}}">{{.Path}}</a></li>
 {{end}}
 </ul>
 {{else}}

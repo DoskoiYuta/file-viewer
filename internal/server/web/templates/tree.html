@@ -1,0 +1,24 @@
+{{template "treeNode" .}}
+
+{{define "treeNode"}}
+{{if .IsDir}}
+  {{if eq .Path ""}}
+    <ul class="tree-root">
+      {{range .Children}}{{template "treeNode" .}}{{end}}
+    </ul>
+  {{else}}
+    <li class="tree-dir">
+      <details open>
+        <summary>{{.Name}}</summary>
+        <ul>
+          {{range .Children}}{{template "treeNode" .}}{{end}}
+        </ul>
+      </details>
+    </li>
+  {{end}}
+{{else}}
+  <li class="tree-file">
+    <a href="?file={{.Path}}" data-path="{{.Path}}" class="file-link">{{.Name}}</a>
+  </li>
+{{end}}
+{{end}}

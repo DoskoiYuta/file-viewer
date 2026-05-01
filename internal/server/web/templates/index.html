@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>file-viewer</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.6.1/github-markdown.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs";
+    window.__mermaid = mermaid;
+    mermaid.initialize({ startOnLoad: false, theme: document.documentElement.dataset.themeResolved === 'dark' ? 'dark' : 'default' });
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div id="layout" class="layout sidebar-open">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <button id="toggle-sidebar" class="icon-btn" title="Toggle sidebar" aria-label="Toggle sidebar">≡</button>
+        <span class="title">file-viewer</span>
+        <button id="toggle-theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+      </div>
+      <div class="search-box">
+        <input id="q-name" type="search" placeholder="Search files…" autocomplete="off"
+               hx-get="/api/search" hx-trigger="input changed delay:120ms, search"
+               hx-target="#search-results" hx-swap="innerHTML" name="q">
+        <input id="q-grep" type="search" placeholder="Search in .md…" autocomplete="off"
+               hx-get="/api/grep" hx-trigger="input changed delay:200ms, search"
+               hx-target="#grep-results" hx-swap="innerHTML" name="q">
+      </div>
+      <div class="results">
+        <div id="search-results" class="result-block"></div>
+        <div id="grep-results" class="result-block"></div>
+      </div>
+      <div id="tree" class="tree" hx-get="/api/tree" hx-trigger="load, fv:reload from:body" hx-swap="innerHTML"></div>
+    </aside>
+    <button id="open-sidebar" class="open-sidebar-btn" title="Show sidebar" aria-label="Show sidebar">≡</button>
+    <main class="main">
+      <header class="topbar">
+        <span id="current-path" class="current-path"></span>
+      </header>
+      <section id="viewer" class="viewer">
+        <div class="empty">Select a file from the sidebar.</div>
+      </section>
+    </main>
+  </div>
+  <div class="meta" hidden>
+    <span data-root>{{.Root}}</span>
+    <span data-extensions>{{join .Extensions ","}}</span>
+  </div>
+</body>
+</html>

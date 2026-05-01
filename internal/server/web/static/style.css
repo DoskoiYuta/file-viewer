@@ -46,13 +46,16 @@ body {
 .layout {
   display: grid;
   grid-template-columns: 320px 1fr;
+  grid-template-areas: "sidebar main";
   height: 100vh;
   transition: grid-template-columns 0.18s ease;
+  min-width: 0;
 }
 .layout:not(.sidebar-open) {
   grid-template-columns: 0 1fr;
 }
 .sidebar {
+  grid-area: sidebar;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   display: flex;
@@ -60,7 +63,10 @@ body {
   min-width: 0;
   overflow: hidden;
 }
-.layout:not(.sidebar-open) .sidebar { display: none; }
+.main {
+  grid-area: main;
+}
+.layout:not(.sidebar-open) .sidebar { border-right: none; }
 
 .sidebar-header {
   display: flex;
@@ -193,3 +199,51 @@ body {
 .img-wrap img { max-width: 100%; max-height: 90vh; }
 
 pre.mermaid { background: transparent; text-align: center; }
+
+table.frontmatter {
+  border-collapse: collapse;
+  margin: 0 0 20px;
+  font-size: 13px;
+  width: auto;
+  min-width: 320px;
+  max-width: 100%;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+table.frontmatter thead th {
+  background: var(--hover);
+  text-align: left;
+  padding: 6px 12px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+table.frontmatter tbody th,
+table.frontmatter tbody td {
+  text-align: left;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+}
+table.frontmatter tbody tr:first-child th,
+table.frontmatter tbody tr:first-child td { border-top: none; }
+table.frontmatter tbody th {
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  background: transparent;
+  width: 1%;
+}
+table.frontmatter.sub {
+  margin: 0;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+table.frontmatter ul.fm-list { margin: 0; padding-left: 18px; }
+table.frontmatter .fm-null { color: var(--muted); font-style: italic; }

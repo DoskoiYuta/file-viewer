@@ -9,7 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+
+	"github.com/yuin/goldmark/parser"
+	"go.abhg.dev/goldmark/frontmatter"
 )
 
 type indexData struct {
@@ -99,14 +103,100 @@ func (s *Server) renderMarkdown(w io.Writer, abs, rel string) {
 		fmt.Fprintf(w, `<pre>read error: %s</pre>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
+	pCtx := parser.NewContext()
 	var buf bytes.Buffer
-	if err := s.md.Convert(src, &buf); err != nil {
+	if err := s.md.Convert(src, &buf, parser.WithContext(pCtx)); err != nil {
 		fmt.Fprintf(w, `<pre>render error: %s</pre>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
+	fm := ""
+	if data := frontmatter.Get(pCtx); data != nil {
+		var meta map[string]any
+		if err := data.Decode(&meta); err == nil {
+			fm = renderFrontmatterTable(meta)
+		}
+	}
 	out := mermaidRe.ReplaceAllString(buf.String(), `<pre class="mermaid">$1</pre>`)
-	fmt.Fprintf(w, `<article class="markdown-body" data-path="%s">%s</article>`,
-		template.HTMLEscapeString(rel), out)
+	fmt.Fprintf(w, `<article class="markdown-body" data-path="%s">%s%s</article>`,
+		template.HTMLEscapeString(rel), fm, out)
+}
+
+func renderFrontmatterTable(meta map[string]any) string {
+	if len(meta) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(meta))
+	for k := range meta {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	sb.WriteString(`<table class="frontmatter"><thead><tr><th colspan="2">front matter</th></tr></thead><tbody>`)
+	for _, k := range keys {
+		fmt.Fprintf(&sb, `<tr><th>%s</th><td>%s</td></tr>`,
+			template.HTMLEscapeString(k), renderFMValue(meta[k]))
+	}
+	sb.WriteString(`</tbody></table>`)
+	return sb.String()
+}
+
+func renderFMValue(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return `<span class="fm-null">null</span>`
+	case string:
+		return template.HTMLEscapeString(x)
+	case bool:
+		return fmt.Sprintf("%t", x)
+	case []any:
+		if len(x) == 0 {
+			return `<span class="fm-null">[]</span>`
+		}
+		// All-scalar list → comma-separated; otherwise <ul>.
+		allScalar := true
+		for _, it := range x {
+			switch it.(type) {
+			case []any, map[string]any:
+				allScalar = false
+			}
+			if !allScalar {
+				break
+			}
+		}
+		if allScalar {
+			parts := make([]string, 0, len(x))
+			for _, it := range x {
+				parts = append(parts, renderFMValue(it))
+			}
+			return strings.Join(parts, ", ")
+		}
+		var sb strings.Builder
+		sb.WriteString(`<ul class="fm-list">`)
+		for _, it := range x {
+			fmt.Fprintf(&sb, `<li>%s</li>`, renderFMValue(it))
+		}
+		sb.WriteString(`</ul>`)
+		return sb.String()
+	case map[string]any:
+		if len(x) == 0 {
+			return `<span class="fm-null">{}</span>`
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var sb strings.Builder
+		sb.WriteString(`<table class="frontmatter sub"><tbody>`)
+		for _, k := range keys {
+			fmt.Fprintf(&sb, `<tr><th>%s</th><td>%s</td></tr>`,
+				template.HTMLEscapeString(k), renderFMValue(x[k]))
+		}
+		sb.WriteString(`</tbody></table>`)
+		return sb.String()
+	default:
+		return template.HTMLEscapeString(fmt.Sprintf("%v", x))
+	}
 }
 
 func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {

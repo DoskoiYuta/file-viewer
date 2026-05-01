@@ -5,6 +5,11 @@
   const currentPath = document.getElementById("current-path");
   const VIEW_PREFIX = "/view/";
 
+  function setDisabled(id, off) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !!off;
+  }
+
   // ---- Theme ----
   const themeKey = "file-viewer.theme";
   function applyTheme(t) {
@@ -13,6 +18,11 @@
       ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
       : t;
     root.dataset.themeResolved = resolved;
+    root.dataset.colorMode = resolved;
+    setDisabled("md-css-light", resolved !== "light");
+    setDisabled("md-css-dark", resolved !== "dark");
+    setDisabled("hl-css-light", resolved !== "light");
+    setDisabled("hl-css-dark", resolved !== "dark");
     if (window.__mermaid) {
       window.__mermaid.initialize({ startOnLoad: false, theme: resolved === "dark" ? "dark" : "default" });
       renderMermaid();

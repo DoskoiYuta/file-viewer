@@ -139,6 +139,19 @@ func runForeground(rootDir, openFile string, exts []string, port int, fromDaemon
 	if fromDaemon {
 		// Signal readiness: parent watches stdout (a single line).
 		fmt.Fprintln(os.Stdout, buildURL(port, rootDir, openFile))
+		_ = os.Stdout.Sync()
+
+		// Detach inherited stdio so command substitution like
+		// `$(file-viewer -d 2>&1)` returns instead of waiting on
+		// the still-open pipe held by this process.
+		logPath := filepath.Join(os.TempDir(), fmt.Sprintf("file-viewer-%d.log", port))
+		logger.Printf("logs: %s", logPath)
+		_ = os.Stderr.Sync()
+		if err := detachStdio(logPath); err != nil {
+			logger.Printf("detach stdio: %v", err)
+		}
+		// fd 2 now points at logPath; existing logger continues writing there.
+		logger.Printf("detached pid=%d", os.Getpid())
 	}
 
 	select {

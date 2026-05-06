@@ -19,6 +19,7 @@ type State struct {
 	Port       int       `json:"port"`
 	Root       string    `json:"root"`
 	Extensions []string  `json:"extensions"`
+	IgnoreDirs []string  `json:"ignore_dirs,omitempty"`
 	StartedAt  time.Time `json:"started_at"`
 }
 

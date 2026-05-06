@@ -19,6 +19,9 @@ func (s *Server) buildTree() (*treeNode, error) {
 			return nil
 		}
 		name := d.Name()
+		if d.IsDir() && s.ignore.skip(name) {
+			return fs.SkipDir
+		}
 		rel, _ := filepath.Rel(s.cfg.Root, p)
 		rel = filepath.ToSlash(rel)
 		parent := filepath.ToSlash(filepath.Dir(rel))

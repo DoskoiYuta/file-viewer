@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -38,7 +39,7 @@ func run(args []string) error {
 		return daemon.Stop()
 	}
 	if len(args) >= 1 && args[0] == "status" {
-		return printStatus(os.Stdout)
+		return runStatus(args[1:], os.Stdout)
 	}
 
 	fs := flag.NewFlagSet("file-viewer", flag.ContinueOnError)
@@ -46,7 +47,7 @@ func run(args []string) error {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: file-viewer [options] [path]
        file-viewer down
-       file-viewer status
+       file-viewer status [--json]
 
 Options:
   -d        run in background; prints URL to stdout, logs to stderr
@@ -247,13 +248,46 @@ func spawnBackground(targetArg string, exts []string, port int) error {
 	return nil
 }
 
-func printStatus(w io.Writer) error {
+func runStatus(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("file-viewer status", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
 	s, ok := daemon.ReadState()
-	if !ok {
+	state := "stopped"
+	if ok && !daemon.IsAlive(s) {
+		state = "stale"
+	} else if ok {
+		state = "running"
+	}
+
+	if *asJSON {
+		out := map[string]any{"status": state}
+		if state == "running" {
+			out["pid"] = s.PID
+			out["port"] = s.Port
+			out["root"] = s.Root
+			out["extensions"] = s.Extensions
+			if s.Port > 0 {
+				out["url"] = fmt.Sprintf("http://localhost:%d/", s.Port)
+			}
+			if !s.StartedAt.IsZero() {
+				out["started_at"] = s.StartedAt.Format(time.RFC3339)
+			}
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	}
+
+	switch state {
+	case "stopped":
 		fmt.Fprintln(w, "status: stopped")
 		return nil
-	}
-	if !daemon.IsAlive(s) {
+	case "stale":
 		fmt.Fprintln(w, "status: stopped (stale pid file)")
 		return nil
 	}

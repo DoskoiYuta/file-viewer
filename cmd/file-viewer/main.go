@@ -37,12 +37,16 @@ func run(args []string) error {
 	if len(args) >= 1 && args[0] == "down" {
 		return daemon.Stop()
 	}
+	if len(args) >= 1 && args[0] == "status" {
+		return printStatus(os.Stdout)
+	}
 
 	fs := flag.NewFlagSet("file-viewer", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: file-viewer [options] [path]
        file-viewer down
+       file-viewer status
 
 Options:
   -d        run in background; prints URL to stdout, logs to stderr
@@ -124,7 +128,11 @@ func runForeground(rootDir, openFile string, exts []string, port int, fromDaemon
 		return fmt.Errorf("init server: %w", err)
 	}
 
-	if err := daemon.WritePID(port); err != nil {
+	if err := daemon.WriteState(daemon.State{
+		Port:       port,
+		Root:       rootDir,
+		Extensions: exts,
+	}); err != nil {
 		return fmt.Errorf("write pid: %w", err)
 	}
 	defer daemon.RemovePID()
@@ -236,6 +244,33 @@ func spawnBackground(targetArg string, exts []string, port int) error {
 	// Detach: don't wait, redirect remaining stderr to /dev/null
 	_ = cmd.Process.Release()
 	fmt.Println(serverURL)
+	return nil
+}
+
+func printStatus(w io.Writer) error {
+	s, ok := daemon.ReadState()
+	if !ok {
+		fmt.Fprintln(w, "status: stopped")
+		return nil
+	}
+	if !daemon.IsAlive(s) {
+		fmt.Fprintln(w, "status: stopped (stale pid file)")
+		return nil
+	}
+	fmt.Fprintln(w, "status: running")
+	fmt.Fprintf(w, "pid:    %d\n", s.PID)
+	if s.Port > 0 {
+		fmt.Fprintf(w, "url:    http://localhost:%d/\n", s.Port)
+	}
+	if s.Root != "" {
+		fmt.Fprintf(w, "root:   %s\n", s.Root)
+	}
+	if len(s.Extensions) > 0 {
+		fmt.Fprintf(w, "exts:   %s\n", strings.Join(s.Extensions, ","))
+	}
+	if !s.StartedAt.IsZero() {
+		fmt.Fprintf(w, "since:  %s\n", s.StartedAt.Format(time.RFC3339))
+	}
 	return nil
 }
 

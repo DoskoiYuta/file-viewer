@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +13,15 @@ import (
 	"time"
 )
 
+// State is the on-disk record of a running file-viewer server.
+type State struct {
+	PID        int       `json:"pid"`
+	Port       int       `json:"port"`
+	Root       string    `json:"root"`
+	Extensions []string  `json:"extensions"`
+	StartedAt  time.Time `json:"started_at"`
+}
+
 func pidPath() string {
 	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
 		return filepath.Join(d, "file-viewer.pid")
@@ -19,14 +29,23 @@ func pidPath() string {
 	return filepath.Join(os.TempDir(), "file-viewer.pid")
 }
 
-// WritePID stores "<pid> <port>" to the pid file.
-func WritePID(port int) error {
+// WriteState persists the current server state to the pid file as JSON.
+func WriteState(s State) error {
 	p := pidPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	content := fmt.Sprintf("%d %d", os.Getpid(), port)
-	return os.WriteFile(p, []byte(content), 0o644)
+	if s.PID == 0 {
+		s.PID = os.Getpid()
+	}
+	if s.StartedAt.IsZero() {
+		s.StartedAt = time.Now()
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, b, 0o644)
 }
 
 // RemovePID best-effort removes the pid file.
@@ -34,25 +53,35 @@ func RemovePID() {
 	_ = os.Remove(pidPath())
 }
 
-// readPID returns (pid, port, exists).
-func readPID() (int, int, bool) {
+// ReadState returns the persisted state and whether a record exists.
+// It transparently handles the legacy "<pid> <port>" format.
+func ReadState() (State, bool) {
 	b, err := os.ReadFile(pidPath())
 	if err != nil {
-		return 0, 0, false
+		return State{}, false
 	}
-	parts := strings.Fields(strings.TrimSpace(string(b)))
-	if len(parts) == 0 {
-		return 0, 0, false
+	trimmed := strings.TrimSpace(string(b))
+	if trimmed == "" {
+		return State{}, false
 	}
+	if trimmed[0] == '{' {
+		var s State
+		if err := json.Unmarshal([]byte(trimmed), &s); err != nil || s.PID <= 0 {
+			return State{}, false
+		}
+		return s, true
+	}
+	// Legacy "<pid> <port>" format.
+	parts := strings.Fields(trimmed)
 	pid, err := strconv.Atoi(parts[0])
 	if err != nil || pid <= 0 {
-		return 0, 0, false
+		return State{}, false
 	}
 	port := 0
 	if len(parts) > 1 {
 		port, _ = strconv.Atoi(parts[1])
 	}
-	return pid, port, true
+	return State{PID: pid, Port: port}, true
 }
 
 func processAlive(pid int) bool {
@@ -63,57 +92,62 @@ func processAlive(pid int) bool {
 	return p.Signal(syscall.Signal(0)) == nil
 }
 
+// IsAlive reports whether the process referenced by the state is still running.
+func IsAlive(s State) bool {
+	return s.PID > 0 && processAlive(s.PID)
+}
+
 // Stop terminates the running server, waits for it to exit, and removes the pid file.
 func Stop() error {
-	pid, _, ok := readPID()
+	s, ok := ReadState()
 	if !ok {
 		return errors.New("no running file-viewer server")
 	}
-	if !processAlive(pid) {
+	if !processAlive(s.PID) {
 		RemovePID()
 		return errors.New("no running file-viewer server (stale pid)")
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := syscall.Kill(s.PID, syscall.SIGTERM); err != nil {
 		return fmt.Errorf("send SIGTERM: %w", err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if !processAlive(pid) {
+		if !processAlive(s.PID) {
 			RemovePID()
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	_ = syscall.Kill(s.PID, syscall.SIGKILL)
 	RemovePID()
 	return nil
 }
 
 // StopExisting stops any prior running server. Returns nil if none.
 func StopExisting(logger *log.Logger) error {
-	pid, _, ok := readPID()
+	s, ok := ReadState()
 	if !ok {
 		return nil
 	}
-	if !processAlive(pid) {
+	if !processAlive(s.PID) {
 		RemovePID()
 		return nil
 	}
 	if logger != nil {
-		logger.Printf("overwriting existing server pid=%d", pid)
+		logger.Printf("overwriting existing server pid=%d", s.PID)
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := syscall.Kill(s.PID, syscall.SIGTERM); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if !processAlive(pid) {
+		if !processAlive(s.PID) {
 			RemovePID()
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	_ = syscall.Kill(s.PID, syscall.SIGKILL)
 	RemovePID()
 	return nil
 }

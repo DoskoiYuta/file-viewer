@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -37,22 +38,30 @@ func run(args []string) error {
 	if len(args) >= 1 && args[0] == "down" {
 		return daemon.Stop()
 	}
+	if len(args) >= 1 && args[0] == "status" {
+		return runStatus(args[1:], os.Stdout)
+	}
 
 	fs := flag.NewFlagSet("file-viewer", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: file-viewer [options] [path]
        file-viewer down
+       file-viewer status [--json]
 
 Options:
   -d        run in background; prints URL to stdout, logs to stderr
   -e EXTS   comma-separated extensions (default %q)
   -p PORT   listen port (default %d)
+  -i DIRS   comma-separated extra directory base names to ignore
+            (defaults already cover .git, node_modules, .pnpm-store,
+             venv, __pycache__, dist, build, target, etc.)
 `, defaultExt, defaultPort)
 	}
 	background := fs.Bool("d", false, "run in background")
 	extStr := fs.String("e", defaultExt, "extensions")
 	port := fs.Int("p", defaultPort, "port")
+	ignoreStr := fs.String("i", "", "extra directory base names to ignore (comma-separated)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -80,16 +89,32 @@ Options:
 	if len(exts) == 0 {
 		return errors.New("no extensions configured")
 	}
+	ignores := splitCSV(*ignoreStr)
 
 	if os.Getenv(envChild) == "1" {
-		return runForeground(rootDir, openFile, exts, *port, true)
+		return runForeground(rootDir, openFile, exts, ignores, *port, true)
 	}
 
 	if *background {
-		return spawnBackground(target, exts, *port)
+		return spawnBackground(target, exts, ignores, *port)
 	}
 
-	return runForeground(rootDir, openFile, exts, *port, false)
+	return runForeground(rootDir, openFile, exts, ignores, *port, false)
+}
+
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func normalizeExts(s string) []string {
@@ -107,7 +132,7 @@ func normalizeExts(s string) []string {
 	return out
 }
 
-func runForeground(rootDir, openFile string, exts []string, port int, fromDaemon bool) error {
+func runForeground(rootDir, openFile string, exts, ignores []string, port int, fromDaemon bool) error {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 
 	if err := daemon.StopExisting(logger); err != nil {
@@ -119,12 +144,18 @@ func runForeground(rootDir, openFile string, exts []string, port int, fromDaemon
 		Extensions: exts,
 		Port:       port,
 		Logger:     logger,
+		IgnoreDirs: ignores,
 	})
 	if err != nil {
 		return fmt.Errorf("init server: %w", err)
 	}
 
-	if err := daemon.WritePID(port); err != nil {
+	if err := daemon.WriteState(daemon.State{
+		Port:       port,
+		Root:       rootDir,
+		Extensions: exts,
+		IgnoreDirs: ignores,
+	}); err != nil {
 		return fmt.Errorf("write pid: %w", err)
 	}
 	defer daemon.RemovePID()
@@ -167,7 +198,7 @@ func runForeground(rootDir, openFile string, exts []string, port int, fromDaemon
 	return srv.Shutdown(shutdownCtx)
 }
 
-func spawnBackground(targetArg string, exts []string, port int) error {
+func spawnBackground(targetArg string, exts, ignores []string, port int) error {
 	if err := daemon.StopExisting(log.New(os.Stderr, "", log.LstdFlags)); err != nil {
 		fmt.Fprintln(os.Stderr, "stop existing:", err)
 	}
@@ -179,8 +210,11 @@ func spawnBackground(targetArg string, exts []string, port int) error {
 	childArgs := []string{
 		"-e", strings.Join(exts, ","),
 		"-p", fmt.Sprintf("%d", port),
-		targetArg,
 	}
+	if len(ignores) > 0 {
+		childArgs = append(childArgs, "-i", strings.Join(ignores, ","))
+	}
+	childArgs = append(childArgs, targetArg)
 
 	cmd := exec.Command(exe, childArgs...)
 	cmd.Env = append(os.Environ(), envChild+"=1")
@@ -236,6 +270,72 @@ func spawnBackground(targetArg string, exts []string, port int) error {
 	// Detach: don't wait, redirect remaining stderr to /dev/null
 	_ = cmd.Process.Release()
 	fmt.Println(serverURL)
+	return nil
+}
+
+func runStatus(args []string, w io.Writer) error {
+	fs := flag.NewFlagSet("file-viewer status", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	s, ok := daemon.ReadState()
+	state := "stopped"
+	if ok && !daemon.IsAlive(s) {
+		state = "stale"
+	} else if ok {
+		state = "running"
+	}
+
+	if *asJSON {
+		out := map[string]any{"status": state}
+		if state == "running" {
+			out["pid"] = s.PID
+			out["port"] = s.Port
+			out["root"] = s.Root
+			out["extensions"] = s.Extensions
+			if len(s.IgnoreDirs) > 0 {
+				out["ignore_dirs"] = s.IgnoreDirs
+			}
+			if s.Port > 0 {
+				out["url"] = fmt.Sprintf("http://localhost:%d/", s.Port)
+			}
+			if !s.StartedAt.IsZero() {
+				out["started_at"] = s.StartedAt.Format(time.RFC3339)
+			}
+		}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	}
+
+	switch state {
+	case "stopped":
+		fmt.Fprintln(w, "status: stopped")
+		return nil
+	case "stale":
+		fmt.Fprintln(w, "status: stopped (stale pid file)")
+		return nil
+	}
+	fmt.Fprintln(w, "status: running")
+	fmt.Fprintf(w, "pid:    %d\n", s.PID)
+	if s.Port > 0 {
+		fmt.Fprintf(w, "url:    http://localhost:%d/\n", s.Port)
+	}
+	if s.Root != "" {
+		fmt.Fprintf(w, "root:   %s\n", s.Root)
+	}
+	if len(s.Extensions) > 0 {
+		fmt.Fprintf(w, "exts:   %s\n", strings.Join(s.Extensions, ","))
+	}
+	if len(s.IgnoreDirs) > 0 {
+		fmt.Fprintf(w, "ignore: %s\n", strings.Join(s.IgnoreDirs, ","))
+	}
+	if !s.StartedAt.IsZero() {
+		fmt.Fprintf(w, "since:  %s\n", s.StartedAt.Format(time.RFC3339))
+	}
 	return nil
 }
 

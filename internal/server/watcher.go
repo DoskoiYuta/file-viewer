@@ -15,14 +15,15 @@ type watcher struct {
 	w      *fsnotify.Watcher
 	logger *log.Logger
 	hub    *sseHub
+	ignore ignoreSet
 }
 
-func newWatcher(root string, logger *log.Logger, hub *sseHub) (*watcher, error) {
+func newWatcher(root string, logger *log.Logger, hub *sseHub, ignore ignoreSet) (*watcher, error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
-	wat := &watcher{root: root, w: w, logger: logger, hub: hub}
+	wat := &watcher{root: root, w: w, logger: logger, hub: hub, ignore: ignore}
 	if err := wat.addRecursive(root); err != nil {
 		_ = w.Close()
 		return nil, err
@@ -38,7 +39,16 @@ func (wt *watcher) addRecursive(root string) error {
 		if !d.IsDir() {
 			return nil
 		}
-		return wt.w.Add(p)
+		if p != root && wt.ignore != nil && wt.ignore.skip(d.Name()) {
+			return fs.SkipDir
+		}
+		if err := wt.w.Add(p); err != nil {
+			if wt.logger != nil {
+				wt.logger.Printf("watcher add %s: %v", p, err)
+			}
+			return fs.SkipDir
+		}
+		return nil
 	})
 }
 
@@ -71,7 +81,9 @@ func (wt *watcher) run(ctx context.Context) {
 			// If a new directory is created, watch it.
 			if ev.Op&fsnotify.Create != 0 {
 				if info, err := osStat(ev.Name); err == nil && info.IsDir() {
-					_ = wt.addRecursive(ev.Name)
+					if wt.ignore == nil || !wt.ignore.skip(filepath.Base(ev.Name)) {
+						_ = wt.addRecursive(ev.Name)
+					}
 				}
 			}
 			pending[ev.Name] = struct{}{}

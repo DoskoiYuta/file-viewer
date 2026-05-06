@@ -29,11 +29,13 @@ type Config struct {
 	Extensions []string // lowercase, no dot
 	Port       int
 	Logger     *log.Logger
+	IgnoreDirs []string // extra directory base names to skip (in addition to defaults)
 }
 
 type Server struct {
 	cfg     Config
 	extSet  map[string]bool
+	ignore  ignoreSet
 	tmpl    *template.Template
 	md      goldmark.Markdown
 	hub     *sseHub
@@ -85,11 +87,12 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg:    cfg,
 		extSet: extSet,
+		ignore: newIgnoreSet(cfg.IgnoreDirs),
 		tmpl:   tmpl,
 		md:     md,
 		hub:    newSSEHub(),
 	}
-	w, err := newWatcher(cfg.Root, cfg.Logger, s.hub)
+	w, err := newWatcher(cfg.Root, cfg.Logger, s.hub, s.ignore)
 	if err != nil {
 		return nil, err
 	}
